@@ -5,6 +5,8 @@ import {
   Controls,
   MarkerType,
   Position,
+  useNodesState,
+  useEdgesState,
   type Node,
   type Edge,
 } from '@xyflow/react';
@@ -155,8 +157,11 @@ export default function App() {
 
   const gv = useMemo(() => exportGv(model), [model]);
 
-  const { nodes, edges } = useMemo(() => modelToFlow(model), [model]);
+  const initialFlow = useMemo(() => modelToFlow(model), [model]);
 
+  const [nodes, , onNodesChange] = useNodesState(initialFlow.nodes);
+  const [edges, , onEdgesChange] = useEdgesState(initialFlow.edges);
+  
   const nodeTypes = {
     fsmState: FsmStateNode,
   };
@@ -192,6 +197,8 @@ export default function App() {
           <ReactFlow
             nodes={nodes}
             edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             fitView
