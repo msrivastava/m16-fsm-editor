@@ -42,3 +42,60 @@ pre {
   font-family: "SFMono-Regular", Menlo, Consolas, monospace;
   line-height: 1.4;
 }
+
+.canvasPanel {
+  height: 560px;
+}
+
+.canvas {
+  height: 460px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid #ddd;
+  background: #fafafa;
+}
+
+.fsmState {
+  width: 96px;
+  height: 96px;
+  border-radius: 999px;
+  border: 1.5px solid #777;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 650;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.04);
+}
+
+.fsmStateStart {
+  border: 4px double #111;
+}
+
+.fsmStateLabel {
+  pointer-events: none;
+}
+
+.hiddenHandle {
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  background: transparent;
+  border: none;
+}
+
+.selfLoopLabel {
+  padding: 2px 6px;
+  border-radius: 6px;
+
+  background: rgba(255,255,255,0.95);
+
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.2;
+
+  white-space: nowrap;
+
+  box-shadow: none;
+  border: 1px solid rgba(0,0,0,0.05);
+}
