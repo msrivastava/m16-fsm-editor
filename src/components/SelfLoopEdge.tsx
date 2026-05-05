@@ -8,23 +8,24 @@ export function SelfLoopEdge({
   id,
   sourceX,
   sourceY,
-  targetX,
-  targetY,
   markerEnd,
   style,
   label,
 }: EdgeProps) {
-  const loopSize = 72;
+  const r = 52;
 
   const path = `
     M ${sourceX} ${sourceY}
-    C ${sourceX - loopSize} ${sourceY - loopSize},
-      ${targetX - loopSize} ${targetY + loopSize},
-      ${targetX} ${targetY}
+    C ${sourceX - r} ${sourceY - r},
+      ${sourceX - r} ${sourceY - 2 * r},
+      ${sourceX} ${sourceY - 2 * r}
+    C ${sourceX + r} ${sourceY - 2 * r},
+      ${sourceX + r} ${sourceY - r},
+      ${sourceX} ${sourceY}
   `;
 
-  const labelX = sourceX - loopSize - 12;
-  const labelY = sourceY - 18;
+  const labelX = sourceX;
+  const labelY = sourceY - 2 * r - 14;
 
   return (
     <>

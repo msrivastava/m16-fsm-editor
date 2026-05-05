@@ -4,20 +4,34 @@ import {
   Background,
   Controls,
   MarkerType,
-  Position,
   useNodesState,
   useEdgesState,
   type Node,
   type Edge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+
+import dagre from 'dagre';
+
 import { FsmStateNode } from './components/FsmStateNode';
 import { SelfLoopEdge } from './components/SelfLoopEdge';
+import { FsmTransitionEdge } from './components/FsmTransitionEdge';
 
 import { example2 } from './fsm/examples';
 import { exportGv } from './fsm/gvExport';
 import type { FsmModel } from './fsm/model';
 import './App.css';
+
+const NODE_WIDTH = 96;
+const NODE_HEIGHT = 96;
+
+type Point = { x: number; y: number };
+type Side = 'right' | 'left' | 'bottom' | 'top';
+
+type FlowHandleChoice = {
+  sourceHandle: string;
+  targetHandle: string;
+};
 
 function transitionLabel(t: FsmModel['transitions'][number]): string {
   const actions = t.mealyActions?.map((a) => `${a.target}=${a.value}`).join(',') ?? '';
@@ -26,13 +40,170 @@ function transitionLabel(t: FsmModel['transitions'][number]): string {
   return rhs ? `${t.condition} / ${rhs}` : t.condition;
 }
 
+function computeDagreLayout(model: FsmModel): Record<string, Point> {
+  const graph = new dagre.graphlib.Graph();
+
+  graph.setDefaultEdgeLabel(() => ({}));
+
+  graph.setGraph({
+    rankdir: 'LR',
+    nodesep: 80,
+    ranksep: 140,
+    marginx: 40,
+    marginy: 40,
+  });
+
+  for (const state of model.states) {
+    graph.setNode(state.id, {
+      width: NODE_WIDTH,
+      height: NODE_HEIGHT,
+    });
+  }
+
+  for (const transition of model.transitions) {
+    if (transition.from !== transition.to) {
+      graph.setEdge(transition.from, transition.to);
+    }
+  }
+
+  dagre.layout(graph);
+
+  const result: Record<string, Point> = {};
+
+  for (const state of model.states) {
+    const node = graph.node(state.id);
+    result[state.id] = {
+      x: node.x - NODE_WIDTH / 2,
+      y: node.y - NODE_HEIGHT / 2,
+    };
+  }
+
+  return result;
+}
+
+function sideBetween(fromPos: Point, toPos: Point): Side {
+  const dx = toPos.x - fromPos.x;
+  const dy = toPos.y - fromPos.y;
+
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx >= 0 ? 'right' : 'left';
+  }
+
+  return dy >= 0 ? 'bottom' : 'top';
+}
+
+function oppositeSide(side: Side): Side {
+  switch (side) {
+    case 'right':
+      return 'left';
+    case 'left':
+      return 'right';
+    case 'bottom':
+      return 'top';
+    case 'top':
+      return 'bottom';
+  }
+}
+
+const sourceHandlesBySide: Record<Side, string[]> = {
+  right: ['right-upper-source', 'right-source', 'right-lower-source'],
+  left: ['left-upper-source', 'left-source', 'left-lower-source'],
+  top: ['top-left-source', 'top-source', 'top-right-source'],
+  bottom: ['bottom-left-source', 'bottom-source', 'bottom-right-source'],
+};
+
+const targetHandlesBySide: Record<Side, string[]> = {
+  right: ['right-upper', 'right', 'right-lower'],
+  left: ['left-upper', 'left', 'left-lower'],
+  top: ['top-left', 'top', 'top-right'],
+  bottom: ['bottom-left', 'bottom', 'bottom-right'],
+};
+
+function allocateHandles(
+  model: FsmModel,
+  layout: Record<string, Point>
+): Record<string, FlowHandleChoice> {
+  const result: Record<string, FlowHandleChoice> = {};
+
+  // Shared physical occupancy: source and target handles on the same side
+  // of the same node compete for the same visual slots.
+  const used: Record<string, Set<number>> = {};
+
+  function physicalKey(nodeId: string, side: Side): string {
+    return `${nodeId}:${side}`;
+  }
+
+  function reserveSlot(nodeId: string, side: Side, preferred: number): number {
+    const key = physicalKey(nodeId, side);
+    if (!used[key]) used[key] = new Set<number>();
+
+    const order = [preferred, 1, 0, 2];
+
+    for (const candidate of order) {
+      if (!used[key].has(candidate)) {
+        used[key].add(candidate);
+        return candidate;
+      }
+    }
+
+    // More than three edges on this side: reuse cyclically.
+    const fallback = used[key].size % 3;
+    used[key].add(fallback);
+    return fallback;
+  }
+
+  function sourceHandle(side: Side, slot: number): string {
+    return sourceHandlesBySide[side][slot];
+  }
+
+  function targetHandle(side: Side, slot: number): string {
+    return targetHandlesBySide[side][slot];
+  }
+
+  function pairKey(a: string, b: string): string {
+    return a < b ? `${a}::${b}` : `${b}::${a}`;
+  }
+
+  const nonSelfTransitions = model.transitions.filter((t) => t.from !== t.to);
+
+  const pairCounts: Record<string, number> = {};
+  for (const t of nonSelfTransitions) {
+    const key = pairKey(t.from, t.to);
+    pairCounts[key] = (pairCounts[key] ?? 0) + 1;
+  }
+
+  const pairSeen: Record<string, number> = {};
+
+  for (const t of nonSelfTransitions) {
+    const sourceSide = sideBetween(layout[t.from], layout[t.to]);
+    const targetSide = oppositeSide(sourceSide);
+
+    const key = pairKey(t.from, t.to);
+    const localIndex = pairSeen[key] ?? 0;
+    pairSeen[key] = localIndex + 1;
+
+    // For reverse/bidirectional pairs, deliberately choose different
+    // physical slots so the two curves do not sit on top of each other.
+    let preferredSlot = 1; // center by default
+    if (pairCounts[key] > 1) {
+      preferredSlot = localIndex % 2 === 0 ? 0 : 2; // upper/lower or left/right
+    }
+
+    const sourceSlot = reserveSlot(t.from, sourceSide, preferredSlot);
+    const targetSlot = reserveSlot(t.to, targetSide, preferredSlot);
+
+    result[t.id] = {
+      sourceHandle: sourceHandle(sourceSide, sourceSlot),
+      targetHandle: targetHandle(targetSide, targetSlot),
+    };
+  }
+
+  return result;
+}
+
 function modelToFlow(model: FsmModel): { nodes: Node[]; edges: Edge[] } {
-  const layout: Record<string, { x: number; y: number }> = {
-    IDLE: { x: 80, y: 190 },
-    READ: { x: 310, y: 70 },
-    DLY: { x: 540, y: 190 },
-    DONE: { x: 310, y: 330 },
-  };
+  const layout = computeDagreLayout(model);
+  const handleChoices = allocateHandles(model, layout);
 
   const nodes: Node[] = model.states.map((s, i) => ({
     id: s.id,
@@ -48,16 +219,15 @@ function modelToFlow(model: FsmModel): { nodes: Node[]; edges: Edge[] } {
   }));
 
   const edges: Edge[] = model.transitions.map((t) => {
-    const isSelfLoop = t.from === t.to;
     const label = transitionLabel(t);
 
-    if (isSelfLoop) {
+    if (t.from === t.to) {
       return {
         id: t.id,
         source: t.from,
         target: t.to,
         sourceHandle: 'top-source',
-        targetHandle: 'left',
+        targetHandle: 'top',
         label,
         type: 'selfLoop',
         markerEnd: { type: MarkerType.ArrowClosed },
@@ -65,87 +235,20 @@ function modelToFlow(model: FsmModel): { nodes: Node[]; edges: Edge[] } {
       };
     }
 
-    if (t.from === 'READ' && t.to === 'DLY') {
-      return {
-        id: t.id,
-        source: t.from,
-        target: t.to,
-        sourceHandle: 'right-source',
-        targetHandle: 'left',
-        label,
-        type: 'default',
-        markerEnd: { type: MarkerType.ArrowClosed },
-        labelBgPadding: [8, 4],
-        labelBgBorderRadius: 8,
-        labelBgStyle: { fill: '#ffffff', fillOpacity: 0.95 },
-        style: { strokeWidth: 1.8 },
-      };
-    }
-
-    if (t.from === 'DLY' && t.to === 'READ') {
-      return {
-        id: t.id,
-        source: t.from,
-        target: t.to,
-        sourceHandle: 'bottom-source',
-        targetHandle: 'bottom',
-        label,
-        type: 'default',
-        markerEnd: { type: MarkerType.ArrowClosed },
-        labelBgPadding: [8, 4],
-        labelBgBorderRadius: 8,
-        labelBgStyle: { fill: '#ffffff', fillOpacity: 0.95 },
-        style: { strokeWidth: 1.8 },
-      };
-    }
-
-    if (t.from === 'DLY' && t.to === 'DONE') {
-      return {
-        id: t.id,
-        source: t.from,
-        target: t.to,
-        sourceHandle: 'bottom-source',
-        targetHandle: 'right',
-        label,
-        type: 'default',
-        markerEnd: { type: MarkerType.ArrowClosed },
-        labelBgPadding: [8, 4],
-        labelBgBorderRadius: 8,
-        labelBgStyle: { fill: '#ffffff', fillOpacity: 0.95 },
-        style: { strokeWidth: 1.8 },
-      };
-    }
-
-    if (t.from === 'DONE' && t.to === 'IDLE') {
-      return {
-        id: t.id,
-        source: t.from,
-        target: t.to,
-        sourceHandle: 'left-source',
-        targetHandle: 'bottom',
-        label,
-        type: 'default',
-        markerEnd: { type: MarkerType.ArrowClosed },
-        labelBgPadding: [8, 4],
-        labelBgBorderRadius: 8,
-        labelBgStyle: { fill: '#ffffff', fillOpacity: 0.95 },
-        style: { strokeWidth: 1.8 },
-      };
-    }
+    const handles = handleChoices[t.id];
 
     return {
       id: t.id,
       source: t.from,
       target: t.to,
-      sourceHandle: 'right-source',
-      targetHandle: 'left',
+      sourceHandle: handles.sourceHandle,
+      targetHandle: handles.targetHandle,
       label,
-      type: 'default',
+      type: 'fsmTransition',
       markerEnd: { type: MarkerType.ArrowClosed },
-      labelBgPadding: [8, 4],
-      labelBgBorderRadius: 8,
-      labelBgStyle: { fill: '#ffffff', fillOpacity: 0.95 },
-      style: { strokeWidth: 1.8 },
+      style: {
+        strokeWidth: 1.8,
+      },
     };
   });
 
@@ -156,19 +259,25 @@ export default function App() {
   const [model] = useState<FsmModel>(example2);
 
   const gv = useMemo(() => exportGv(model), [model]);
-
   const initialFlow = useMemo(() => modelToFlow(model), [model]);
 
   const [nodes, , onNodesChange] = useNodesState(initialFlow.nodes);
   const [edges, , onEdgesChange] = useEdgesState(initialFlow.edges);
-  
-  const nodeTypes = {
-    fsmState: FsmStateNode,
-  };
 
-  const edgeTypes = {
-    selfLoop: SelfLoopEdge,
-  };
+  const nodeTypes = useMemo(
+    () => ({
+      fsmState: FsmStateNode,
+    }),
+    []
+  );
+
+  const edgeTypes = useMemo(
+    () => ({
+      selfLoop: SelfLoopEdge,
+      fsmTransition: FsmTransitionEdge,
+    }),
+    []
+  );
 
   return (
     <main className="page">
