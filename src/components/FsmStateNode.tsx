@@ -10,6 +10,7 @@ const handleStyle = {
 
 export function FsmStateNode({ data }: NodeProps) {
   const isStart = Boolean(data.isStart);
+  const mooreActions = String(data.mooreActions ?? '');
 
   return (
     <div className={`fsmState ${isStart ? 'fsmStateStart' : ''}`}>
@@ -30,7 +31,10 @@ export function FsmStateNode({ data }: NodeProps) {
       <Handle id="right-upper" type="target" position={Position.Right} style={{ ...handleStyle, top: '35%' }} />
       <Handle id="right-lower" type="target" position={Position.Right} style={{ ...handleStyle, top: '65%' }} />
 
-      <div className="fsmStateLabel">{String(data.label ?? '')}</div>
+      <div className="fsmStateLabel">
+        <div>{String(data.label ?? '')}</div>
+        {mooreActions && <div className="fsmMooreActions">{mooreActions}</div>}
+      </div>
 
       {/* Source handles */}
       <Handle id="top-source" type="source" position={Position.Top} style={{ ...handleStyle, left: '50%' }} />

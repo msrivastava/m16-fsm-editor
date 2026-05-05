@@ -151,3 +151,24 @@ pre {
   color: #b00020;
   font-size: 0.92rem;
 }
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fsmStateLabel {
+  pointer-events: none;
+  text-align: center;
+  line-height: 1.15;
+}
+
+.fsmMooreActions {
+  margin-top: 4px;
+  font-size: 9px;
+  font-weight: 400;
+  color: #555;
+  max-width: 84px;
+  overflow-wrap: anywhere;
+}

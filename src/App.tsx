@@ -251,6 +251,51 @@ function updateTransition(
   };
 }
 
+function updateState(
+  model: FsmModel,
+  stateId: string,
+  patch: Partial<FsmModel['states'][number]>
+): FsmModel {
+  return {
+    ...model,
+    states: model.states.map((s) =>
+      s.id === stateId ? { ...s, ...patch } : s
+    ),
+  };
+}
+
+function renameState(model: FsmModel, oldId: string, newId: string): FsmModel {
+  const clean = newId.trim();
+
+  if (!clean || clean === oldId) return model;
+
+  if (model.states.some((s) => s.id === clean)) {
+    throw new Error(`State "${clean}" already exists.`);
+  }
+
+  return {
+    ...model,
+    states: model.states.map((s) =>
+      s.id === oldId ? { ...s, id: clean } : s
+    ),
+    transitions: model.transitions.map((t) => ({
+      ...t,
+      from: t.from === oldId ? clean : t.from,
+      to: t.to === oldId ? clean : t.to,
+    })),
+  };
+}
+
+function setStartState(model: FsmModel, stateId: string): FsmModel {
+  return {
+    ...model,
+    states: model.states.map((s) => ({
+      ...s,
+      isStart: s.id === stateId,
+    })),
+  };
+}
+
 function modelToFlow(model: FsmModel): { nodes: Node[]; edges: Edge[] } {
   const layout = computeDagreLayout(model);
   const handleChoices = allocateHandles(model, layout);
@@ -265,6 +310,7 @@ function modelToFlow(model: FsmModel): { nodes: Node[]; edges: Edge[] } {
     data: {
       label: s.id,
       isStart: Boolean(s.isStart),
+      mooreActions: actionsToText(s.mooreActions),
     },
   }));
 
@@ -366,6 +412,18 @@ export default function App() {
     }
   }, [selectedEdge?.id]);
 
+  const [stateNameDraft, setStateNameDraft] = useState('');
+  const [stateMooreDraft, setStateMooreDraft] = useState('');
+  const [stateEditError, setStateEditError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedNode) {
+      setStateNameDraft(selectedNode.id);
+      setStateMooreDraft(actionsToText(selectedNode.mooreActions));
+      setStateEditError(null);
+    }
+  }, [selectedNode?.id]);
+
   return (
     <main className="page">
       <section className="panel">
@@ -429,18 +487,81 @@ export default function App() {
             <div className="fieldLabel">Type</div>
             <div>State</div>
 
-            <div className="fieldLabel">Name</div>
-            <div>{selectedNode.id}</div>
+            <label className="fieldLabel" htmlFor="stateNameInput">
+              Name
+            </label>
+            <input
+              id="stateNameInput"
+              className="textInput"
+              value={stateNameDraft}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const next = raw.trim();
+                const oldId = selectedNode.id;
+
+                setStateNameDraft(raw);
+
+                if (!next) {
+                  setStateEditError('State name cannot be empty.');
+                  return;
+                }
+
+                if (next !== oldId && model.states.some((s) => s.id === next)) {
+                  setStateEditError(`State "${next}" already exists.`);
+                  return;
+                }
+
+                setModel((current) => renameState(current, oldId, next));
+                setSelectedId(next);
+                setStateEditError(null);
+              }}
+            />
 
             <div className="fieldLabel">Start state</div>
-            <div>{selectedNode.isStart ? 'Yes' : 'No'}</div>
+            <label className="checkboxRow">
+              <input
+                type="checkbox"
+                checked={Boolean(selectedNode.isStart)}
+                disabled={Boolean(selectedNode.isStart)}
+                onChange={() => {
+                  setModel((current) => setStartState(current, selectedNode.id));
+                }}
+              />
+              This is the start state
+            </label>
 
-            <div className="fieldLabel">Moore actions</div>
-            <div>
-              {(selectedNode.mooreActions ?? []).length > 0
-                ? selectedNode.mooreActions?.map((a) => `${a.target}=${a.value}`).join(', ')
-                : 'None'}
-            </div>
+            <label className="fieldLabel" htmlFor="mooreActionsInput">
+              Moore actions
+            </label>
+            <input
+              id="mooreActionsInput"
+              className="textInput"
+              value={stateMooreDraft}
+              placeholder="rd=1,ds=0"
+              onChange={(e) => {
+                const text = e.target.value;
+                setStateMooreDraft(text);
+
+                try {
+                  const parsed = parseActionsText(text);
+                  setStateEditError(null);
+                  setModel((current) =>
+                    updateState(current, selectedNode.id, {
+                      mooreActions: parsed,
+                    })
+                  );
+                } catch (err) {
+                  setStateEditError(err instanceof Error ? err.message : 'Invalid Moore action list.');
+                }
+              }}
+            />
+
+            {stateEditError && (
+              <>
+                <div />
+                <div className="errorText">{stateEditError}</div>
+              </>
+            )}
           </div>
         )}
 
