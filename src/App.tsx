@@ -264,6 +264,17 @@ export default function App() {
   const [nodes, , onNodesChange] = useNodesState(initialFlow.nodes);
   const [edges, , onEdgesChange] = useEdgesState(initialFlow.edges);
 
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedKind, setSelectedKind] = useState<'node' | 'edge' | null>(null);
+
+  const selectedNode = selectedKind === 'node'
+    ? model.states.find((s) => s.id === selectedId)
+    : undefined;
+
+  const selectedEdge = selectedKind === 'edge'
+    ? model.transitions.find((t) => t.id === selectedId)
+    : undefined;
+
   const nodeTypes = useMemo(
     () => ({
       fsmState: FsmStateNode,
@@ -308,6 +319,18 @@ export default function App() {
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+            onNodeClick={(_, node) => {
+              setSelectedKind('node');
+              setSelectedId(node.id);
+            }}
+            onEdgeClick={(_, edge) => {
+              setSelectedKind('edge');
+              setSelectedId(edge.id);
+            }}
+            onPaneClick={() => {
+              setSelectedKind(null);
+              setSelectedId(null);
+            }}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             fitView
@@ -316,6 +339,57 @@ export default function App() {
             <Controls />
           </ReactFlow>
         </div>
+      </section>
+
+      <section className="panel inspectorPanel">
+        <h2>Inspector</h2>
+
+        {!selectedKind && (
+          <p className="muted">Click a state or transition to inspect it.</p>
+        )}
+
+        {selectedNode && (
+          <div className="inspectorGrid">
+            <div className="fieldLabel">Type</div>
+            <div>State</div>
+
+            <div className="fieldLabel">Name</div>
+            <div>{selectedNode.id}</div>
+
+            <div className="fieldLabel">Start state</div>
+            <div>{selectedNode.isStart ? 'Yes' : 'No'}</div>
+
+            <div className="fieldLabel">Moore actions</div>
+            <div>
+              {(selectedNode.mooreActions ?? []).length > 0
+                ? selectedNode.mooreActions?.map((a) => `${a.target}=${a.value}`).join(', ')
+                : 'None'}
+            </div>
+          </div>
+        )}
+
+        {selectedEdge && (
+          <div className="inspectorGrid">
+            <div className="fieldLabel">Type</div>
+            <div>Transition</div>
+
+            <div className="fieldLabel">From</div>
+            <div>{selectedEdge.from}</div>
+
+            <div className="fieldLabel">To</div>
+            <div>{selectedEdge.to}</div>
+
+            <div className="fieldLabel">Condition</div>
+            <div>{selectedEdge.condition}</div>
+
+            <div className="fieldLabel">Mealy actions</div>
+            <div>
+              {(selectedEdge.mealyActions ?? []).length > 0
+                ? selectedEdge.mealyActions?.map((a) => `${a.target}=${a.value}`).join(', ')
+                : 'None'}
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="panel">

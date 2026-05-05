@@ -111,3 +111,23 @@ pre {
   box-shadow: none;
   border: 1px solid rgba(0,0,0,0.05);
 }
+
+.inspectorPanel {
+  min-height: 160px;
+}
+
+.inspectorGrid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 10px 16px;
+  align-items: baseline;
+}
+
+.fieldLabel {
+  color: #666;
+  font-weight: 600;
+}
+
+.muted {
+  color: #777;
+}
