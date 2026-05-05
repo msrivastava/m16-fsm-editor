@@ -131,3 +131,23 @@ pre {
 .muted {
   color: #777;
 }
+
+.textInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  font: inherit;
+}
+
+.textInput:focus {
+  outline: none;
+  border-color: #555;
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.08);
+}
+
+.errorText {
+  color: #b00020;
+  font-size: 0.92rem;
+}

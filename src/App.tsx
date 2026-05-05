@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -201,6 +201,56 @@ function allocateHandles(
   return result;
 }
 
+function actionsToText(actions: FsmModel['transitions'][number]['mealyActions']): string {
+  return (actions ?? []).map((a) => `${a.target}=${a.value}`).join(',');
+}
+
+function parseActionsText(text: string): FsmModel['transitions'][number]['mealyActions'] {
+  const trimmed = text.trim();
+
+  if (!trimmed) return [];
+
+  return trimmed
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const pieces = part.split('=').map((x) => x.trim());
+
+      if (pieces.length !== 2) {
+        throw new Error(`Invalid action "${part}". Use signal=0 or signal=1.`);
+      }
+
+      const [target, rawValue] = pieces;
+
+      if (!target) {
+        throw new Error(`Invalid action "${part}". Missing signal name.`);
+      }
+
+      if (!['0', '1', 'x', '-', 'd'].includes(rawValue)) {
+        throw new Error(`Invalid value "${rawValue}". Use 0, 1, x, -, or d.`);
+      }
+
+      return {
+        target,
+        value: rawValue === '0' || rawValue === '1' ? Number(rawValue) as 0 | 1 : rawValue as 'x' | '-' | 'd',
+      };
+    });
+}
+
+function updateTransition(
+  model: FsmModel,
+  transitionId: string,
+  patch: Partial<FsmModel['transitions'][number]>
+): FsmModel {
+  return {
+    ...model,
+    transitions: model.transitions.map((t) =>
+      t.id === transitionId ? { ...t, ...patch } : t
+    ),
+  };
+}
+
 function modelToFlow(model: FsmModel): { nodes: Node[]; edges: Edge[] } {
   const layout = computeDagreLayout(model);
   const handleChoices = allocateHandles(model, layout);
@@ -256,13 +306,28 @@ function modelToFlow(model: FsmModel): { nodes: Node[]; edges: Edge[] } {
 }
 
 export default function App() {
-  const [model] = useState<FsmModel>(example2);
+  const [model, setModel] = useState<FsmModel>(example2);
 
   const gv = useMemo(() => exportGv(model), [model]);
   const initialFlow = useMemo(() => modelToFlow(model), [model]);
 
-  const [nodes, , onNodesChange] = useNodesState(initialFlow.nodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialFlow.edges);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialFlow.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
+
+  useEffect(() => {
+    const flow = modelToFlow(model);
+
+    setNodes((currentNodes) =>
+      flow.nodes.map((newNode) => {
+        const existing = currentNodes.find((n) => n.id === newNode.id);
+        return existing
+          ? { ...newNode, position: existing.position }
+          : newNode;
+      })
+    );
+
+    setEdges(flow.edges);
+  }, [model, setNodes, setEdges]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedKind, setSelectedKind] = useState<'node' | 'edge' | null>(null);
@@ -274,6 +339,8 @@ export default function App() {
   const selectedEdge = selectedKind === 'edge'
     ? model.transitions.find((t) => t.id === selectedId)
     : undefined;
+
+  const [actionEditError, setActionEditError] = useState<string | null>(null);
 
   const nodeTypes = useMemo(
     () => ({
@@ -289,6 +356,15 @@ export default function App() {
     }),
     []
   );
+
+  const [actionsDraft, setActionsDraft] = useState('');
+
+  useEffect(() => {
+    if (selectedEdge) {
+      setActionsDraft(actionsToText(selectedEdge.mealyActions));
+      setActionEditError(null);
+    }
+  }, [selectedEdge?.id]);
 
   return (
     <main className="page">
@@ -379,15 +455,54 @@ export default function App() {
             <div className="fieldLabel">To</div>
             <div>{selectedEdge.to}</div>
 
-            <div className="fieldLabel">Condition</div>
-            <div>{selectedEdge.condition}</div>
+            <label className="fieldLabel" htmlFor="conditionInput">
+              Condition
+            </label>
+            <input
+              id="conditionInput"
+              className="textInput"
+              value={selectedEdge.condition}
+              onChange={(e) => {
+                setModel((current) =>
+                  updateTransition(current, selectedEdge.id, {
+                    condition: e.target.value,
+                  })
+                );
+              }}
+            />
 
-            <div className="fieldLabel">Mealy actions</div>
-            <div>
-              {(selectedEdge.mealyActions ?? []).length > 0
-                ? selectedEdge.mealyActions?.map((a) => `${a.target}=${a.value}`).join(', ')
-                : 'None'}
-            </div>
+            <label className="fieldLabel" htmlFor="actionsInput">
+              Mealy actions
+            </label>
+            <input
+              id="actionsInput"
+              className="textInput"
+              value={actionsDraft}
+              placeholder="rd=1,ds=0"
+              onChange={(e) => {
+                const text = e.target.value;
+                setActionsDraft(text);
+
+                try {
+                  const parsed = parseActionsText(text);
+                  setActionEditError(null);
+                  setModel((current) =>
+                    updateTransition(current, selectedEdge.id, {
+                      mealyActions: parsed,
+                    })
+                  );
+                } catch (err) {
+                  setActionEditError(err instanceof Error ? err.message : 'Invalid action list.');
+                }
+              }}
+            />
+
+            {actionEditError && (
+              <>
+                <div />
+                <div className="errorText">{actionEditError}</div>
+              </>
+            )}
           </div>
         )}
       </section>
