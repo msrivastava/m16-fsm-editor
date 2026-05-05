@@ -296,7 +296,85 @@ function setStartState(model: FsmModel, stateId: string): FsmModel {
   };
 }
 
-function modelToFlow(model: FsmModel): { nodes: Node[]; edges: Edge[] } {
+function nextUniqueStateId(model: FsmModel): string {
+  let i = model.states.length;
+  while (model.states.some((s) => s.id === `S${i}`)) i += 1;
+  return `S${i}`;
+}
+
+function nextUniqueTransitionId(model: FsmModel): string {
+  let i = model.transitions.length;
+  while (model.transitions.some((t) => t.id === `t${i}`)) i += 1;
+  return `t${i}`;
+}
+
+function addState(model: FsmModel): FsmModel {
+  const id = nextUniqueStateId(model);
+
+  return {
+    ...model,
+    states: [
+      ...model.states,
+      {
+        id,
+        isStart: model.states.length === 0,
+        mooreActions: [],
+      },
+    ],
+  };
+}
+
+function deleteState(model: FsmModel, stateId: string): FsmModel {
+  if (model.states.length <= 1) {
+    throw new Error('FSM must have at least one state.');
+  }
+
+  const deleted = model.states.find((s) => s.id === stateId);
+  const remaining = model.states.filter((s) => s.id !== stateId);
+
+  if (deleted?.isStart && remaining.length > 0) {
+    remaining[0] = { ...remaining[0], isStart: true };
+  }
+
+  return {
+    ...model,
+    states: remaining,
+    transitions: model.transitions.filter(
+      (t) => t.from !== stateId && t.to !== stateId
+    ),
+  };
+}
+
+function addTransition(model: FsmModel, from: string, to: string): FsmModel {
+  const id = nextUniqueTransitionId(model);
+
+  return {
+    ...model,
+    transitions: [
+      ...model.transitions,
+      {
+        id,
+        from,
+        to,
+        condition: '*',
+        mealyActions: [],
+      },
+    ],
+  };
+}
+
+function deleteTransition(model: FsmModel, transitionId: string): FsmModel {
+  return {
+    ...model,
+    transitions: model.transitions.filter((t) => t.id !== transitionId),
+  };
+}
+
+function modelToFlow(
+  model: FsmModel,
+  selectedKind?: 'node' | 'edge' | null,
+  selectedId?: string | null
+): { nodes: Node[]; edges: Edge[] } {
   const layout = computeDagreLayout(model);
   const handleChoices = allocateHandles(model, layout);
 
@@ -311,6 +389,7 @@ function modelToFlow(model: FsmModel): { nodes: Node[]; edges: Edge[] } {
       label: s.id,
       isStart: Boolean(s.isStart),
       mooreActions: actionsToText(s.mooreActions),
+      selected: selectedKind === 'node' && selectedId === s.id,
     },
   }));
 
@@ -327,7 +406,11 @@ function modelToFlow(model: FsmModel): { nodes: Node[]; edges: Edge[] } {
         label,
         type: 'selfLoop',
         markerEnd: { type: MarkerType.ArrowClosed },
-        style: { strokeWidth: 1.8 },
+        style: {
+          strokeWidth: selectedKind === 'edge' && selectedId === t.id ? 3.2 : 1.8,
+          stroke: selectedKind === 'edge' && selectedId === t.id ? '#007aff' : undefined,
+        },
+        selected: selectedKind === 'edge' && selectedId === t.id,
       };
     }
 
@@ -343,8 +426,10 @@ function modelToFlow(model: FsmModel): { nodes: Node[]; edges: Edge[] } {
       type: 'fsmTransition',
       markerEnd: { type: MarkerType.ArrowClosed },
       style: {
-        strokeWidth: 1.8,
+        strokeWidth: selectedKind === 'edge' && selectedId === t.id ? 3.2 : 1.8,
+        stroke: selectedKind === 'edge' && selectedId === t.id ? '#007aff' : undefined,
       },
+      selected: selectedKind === 'edge' && selectedId === t.id,
     };
   });
 
@@ -352,16 +437,35 @@ function modelToFlow(model: FsmModel): { nodes: Node[]; edges: Edge[] } {
 }
 
 export default function App() {
-  const [model, setModel] = useState<FsmModel>(example2);
+  const [model, setModelRaw] = useState<FsmModel>(example2);
+  const [undoModel, setUndoModel] = useState<FsmModel | null>(null);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedKind, setSelectedKind] = useState<'node' | 'edge' | null>(null);
+
+  function commitModel(update: FsmModel | ((current: FsmModel) => FsmModel)) {
+    setModelRaw((current) => {
+      const next = typeof update === 'function'
+        ? (update as (current: FsmModel) => FsmModel)(current)
+        : update;
+
+      setUndoModel(current);
+      return next;
+    });
+  }
 
   const gv = useMemo(() => exportGv(model), [model]);
-  const initialFlow = useMemo(() => modelToFlow(model), [model]);
+
+  const initialFlow = useMemo(
+    () => modelToFlow(model, selectedKind, selectedId),
+    [model, selectedKind, selectedId]
+  );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialFlow.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
 
   useEffect(() => {
-    const flow = modelToFlow(model);
+    const flow = modelToFlow(model, selectedKind, selectedId);
 
     setNodes((currentNodes) =>
       flow.nodes.map((newNode) => {
@@ -373,10 +477,7 @@ export default function App() {
     );
 
     setEdges(flow.edges);
-  }, [model, setNodes, setEdges]);
-
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedKind, setSelectedKind] = useState<'node' | 'edge' | null>(null);
+  }, [model, selectedKind, selectedId, setNodes, setEdges]);
 
   const selectedNode = selectedKind === 'node'
     ? model.states.find((s) => s.id === selectedId)
@@ -387,22 +488,6 @@ export default function App() {
     : undefined;
 
   const [actionEditError, setActionEditError] = useState<string | null>(null);
-
-  const nodeTypes = useMemo(
-    () => ({
-      fsmState: FsmStateNode,
-    }),
-    []
-  );
-
-  const edgeTypes = useMemo(
-    () => ({
-      selfLoop: SelfLoopEdge,
-      fsmTransition: FsmTransitionEdge,
-    }),
-    []
-  );
-
   const [actionsDraft, setActionsDraft] = useState('');
 
   useEffect(() => {
@@ -424,25 +509,66 @@ export default function App() {
     }
   }, [selectedNode?.id]);
 
+  const [newTransitionFrom, setNewTransitionFrom] = useState('');
+  const [newTransitionTo, setNewTransitionTo] = useState('');
+  const [structureEditError, setStructureEditError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (model.states.length > 0) {
+      setNewTransitionFrom((current) => current || model.states[0].id);
+      setNewTransitionTo((current) => current || model.states[0].id);
+    }
+  }, [model.states]);
+
+  const nodeTypes = useMemo(
+    () => ({
+      fsmState: FsmStateNode,
+    }),
+    []
+  );
+
+  const edgeTypes = useMemo(
+    () => ({
+      selfLoop: SelfLoopEdge,
+      fsmTransition: FsmTransitionEdge,
+    }),
+    []
+  );
+
   return (
     <main className="page">
       <section className="panel">
         <h1>M16 FSM Editor</h1>
         <p>Visual editor for generating fsm2logisim-compatible .gv files.</p>
 
-        <button
-          onClick={() => {
-            const blob = new Blob([gv], { type: 'text/vnd.graphviz' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'fsm.gv';
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-        >
-          Download .gv
-        </button>
+        <div className="structureRow">
+          <button
+            onClick={() => {
+              const blob = new Blob([gv], { type: 'text/vnd.graphviz' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'fsm.gv';
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            Download .gv
+          </button>
+
+          <button
+            disabled={!undoModel}
+            onClick={() => {
+              if (!undoModel) return;
+              setModelRaw(undoModel);
+              setUndoModel(null);
+              setSelectedKind(null);
+              setSelectedId(null);
+            }}
+          >
+            Undo
+          </button>
+        </div>
       </section>
 
       <section className="panel canvasPanel">
@@ -473,6 +599,101 @@ export default function App() {
             <Controls />
           </ReactFlow>
         </div>
+      </section>
+
+      <section className="panel structurePanel">
+        <h2>Structure</h2>
+
+        <div className="structureRow">
+          <button
+            onClick={() => {
+              commitModel((current) => addState(current));
+              setStructureEditError(null);
+            }}
+          >
+            Add state
+          </button>
+
+          {selectedNode && (
+            <button
+              className="dangerButton"
+              onClick={() => {
+                try {
+                  commitModel((current) => deleteState(current, selectedNode.id));
+                  setSelectedKind(null);
+                  setSelectedId(null);
+                  setStructureEditError(null);
+                } catch (err) {
+                  setStructureEditError(err instanceof Error ? err.message : 'Could not delete state.');
+                }
+              }}
+            >
+              Delete selected state
+            </button>
+          )}
+
+          {selectedEdge && (
+            <button
+              className="dangerButton"
+              onClick={() => {
+                commitModel((current) => deleteTransition(current, selectedEdge.id));
+                setSelectedKind(null);
+                setSelectedId(null);
+                setStructureEditError(null);
+              }}
+            >
+              Delete selected transition
+            </button>
+          )}
+        </div>
+
+        <div className="addTransitionRow">
+          <label>
+            From
+            <select
+              className="selectInput"
+              value={newTransitionFrom}
+              onChange={(e) => setNewTransitionFrom(e.target.value)}
+            >
+              {model.states.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.id}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            To
+            <select
+              className="selectInput"
+              value={newTransitionTo}
+              onChange={(e) => setNewTransitionTo(e.target.value)}
+            >
+              {model.states.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.id}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            onClick={() => {
+              if (!newTransitionFrom || !newTransitionTo) {
+                setStructureEditError('Choose both source and destination states.');
+                return;
+              }
+
+              commitModel((current) => addTransition(current, newTransitionFrom, newTransitionTo));
+              setStructureEditError(null);
+            }}
+          >
+            Add transition
+          </button>
+        </div>
+
+        {structureEditError && <p className="errorText">{structureEditError}</p>}
       </section>
 
       <section className="panel inspectorPanel">
@@ -511,7 +732,7 @@ export default function App() {
                   return;
                 }
 
-                setModel((current) => renameState(current, oldId, next));
+                commitModel((current) => renameState(current, oldId, next));
                 setSelectedId(next);
                 setStateEditError(null);
               }}
@@ -524,7 +745,7 @@ export default function App() {
                 checked={Boolean(selectedNode.isStart)}
                 disabled={Boolean(selectedNode.isStart)}
                 onChange={() => {
-                  setModel((current) => setStartState(current, selectedNode.id));
+                  commitModel((current) => setStartState(current, selectedNode.id));
                 }}
               />
               This is the start state
@@ -545,7 +766,7 @@ export default function App() {
                 try {
                   const parsed = parseActionsText(text);
                   setStateEditError(null);
-                  setModel((current) =>
+                  commitModel((current) =>
                     updateState(current, selectedNode.id, {
                       mooreActions: parsed,
                     })
@@ -584,7 +805,7 @@ export default function App() {
               className="textInput"
               value={selectedEdge.condition}
               onChange={(e) => {
-                setModel((current) =>
+                commitModel((current) =>
                   updateTransition(current, selectedEdge.id, {
                     condition: e.target.value,
                   })
@@ -607,7 +828,7 @@ export default function App() {
                 try {
                   const parsed = parseActionsText(text);
                   setActionEditError(null);
-                  setModel((current) =>
+                  commitModel((current) =>
                     updateTransition(current, selectedEdge.id, {
                       mealyActions: parsed,
                     })

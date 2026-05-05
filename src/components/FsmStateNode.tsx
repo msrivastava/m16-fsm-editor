@@ -10,10 +10,11 @@ const handleStyle = {
 
 export function FsmStateNode({ data }: NodeProps) {
   const isStart = Boolean(data.isStart);
+  const isSelected = Boolean(data.selected);
   const mooreActions = String(data.mooreActions ?? '');
 
   return (
-    <div className={`fsmState ${isStart ? 'fsmStateStart' : ''}`}>
+    <div className={`fsmState ${isStart ? 'fsmStateStart' : ''} ${isSelected ? 'fsmStateSelected' : ''}`}>
       {/* Target handles */}
       <Handle id="top" type="target" position={Position.Top} style={{ ...handleStyle, left: '50%' }} />
       <Handle id="top-left" type="target" position={Position.Top} style={{ ...handleStyle, left: '35%' }} />

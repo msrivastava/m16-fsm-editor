@@ -172,3 +172,54 @@ pre {
   max-width: 84px;
   overflow-wrap: anywhere;
 }
+
+.structurePanel {
+  min-height: 120px;
+}
+
+.structureRow,
+.addTransitionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  margin-top: 12px;
+}
+
+.addTransitionRow label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #666;
+  font-weight: 600;
+}
+
+.selectInput {
+  min-width: 120px;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  font: inherit;
+  background: white;
+  color: #111;
+}
+
+.dangerButton {
+  background: #8a1f1f;
+}
+
+.fsmStateSelected {
+  border-color: #007aff;
+  box-shadow: 0 0 0 5px rgba(0, 122, 255, 0.18), 0 8px 24px rgba(0,0,0,0.08);
+}
+
+.react-flow__edge.selected path,
+.react-flow__edge:focus path {
+  stroke: #007aff;
+  stroke-width: 3.2;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
