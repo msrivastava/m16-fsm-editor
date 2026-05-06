@@ -1223,6 +1223,18 @@ export default function App() {
           >
             Undo
           </button>
+
+          <button
+            onClick={() => {
+              window.open(
+                'https://github.com/msrivastava/m16-fsm-editor/blob/main/HELP.md',
+                '_blank',
+                'noopener,noreferrer'
+              );
+            }}
+          >
+            Help
+          </button>
         </div>
         {projectFileError && <p className="errorText">{projectFileError}</p>}
       </section>
