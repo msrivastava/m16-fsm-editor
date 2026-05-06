@@ -510,6 +510,75 @@ function parseSignalsText(text: string): FsmModel['inputs'] {
     });
 }
 
+function aliasesToText(aliases: FsmModel['aliases']): string {
+  return (aliases ?? []).map((a) => `${a.name}: ${a.value}`).join('\n');
+}
+
+function parseAliasesText(text: string): FsmModel['aliases'] {
+  const aliases = text
+    .split('\n')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const idx = line.indexOf(':');
+
+      if (idx < 0) {
+        throw new Error(`Invalid alias "${line}". Use name: value.`);
+      }
+
+      const name = line.slice(0, idx).trim();
+      const value = line.slice(idx + 1).trim();
+
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+        throw new Error(`Invalid alias name "${name}".`);
+      }
+
+      if (!value) {
+        throw new Error(`Alias "${name}" has no value.`);
+      }
+
+      if (value.includes('{') || value.includes('}')) {
+        throw new Error(`Alias "${name}" may not use another alias.`);
+      }
+
+      return { name, value };
+    });
+
+  const seen = new Set<string>();
+  for (const a of aliases) {
+    if (seen.has(a.name)) {
+      throw new Error(`Duplicate alias "${a.name}".`);
+    }
+    seen.add(a.name);
+  }
+
+  return aliases;
+}
+
+function updateAliases(model: FsmModel, aliases: FsmModel['aliases']): FsmModel {
+  return {
+    ...model,
+    aliases,
+  };
+}
+
+function looksLikeActionAlias(value: string): boolean {
+  if (value.includes('==') || value.includes('!=')) return false;
+  return /(^|,)\s*[A-Za-z_][A-Za-z0-9_]*(?:\[\d+\])?\s*=/.test(value);
+}
+
+function expandAliasValue(alias: FsmModel['aliases'][number], model: FsmModel): string {
+  if (alias.value.includes('{') || alias.value.includes('}')) {
+    throw new Error(`Alias "${alias.name}" may not use another alias.`);
+  }
+
+  if (looksLikeActionAlias(alias.value)) {
+    return actionsToText(parseActionsText(alias.value, model));
+  }
+
+  return expandCondition(alias.value, model);
+}
+
 function updateSignals(
   model: FsmModel,
   kind: 'inputs' | 'outputs',
@@ -608,6 +677,10 @@ export default function App() {
   function modelForGvExport(model: FsmModel): FsmModel {
     return {
       ...model,
+      aliases: (model.aliases ?? []).map((a) => ({
+        ...a,
+        value: expandAliasValue(a, model),
+      })),
       states: model.states.map((s) => ({
         ...s,
         mooreActions: s.friendlyMooreActions !== undefined
@@ -689,6 +762,13 @@ export default function App() {
     setInputsDraft(signalToText(model.inputs));
     setOutputsDraft(signalToText(model.outputs));
   }, [model.inputs, model.outputs]);
+
+  const [aliasesDraft, setAliasesDraft] = useState(aliasesToText(model.aliases));
+  const [aliasEditError, setAliasEditError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAliasesDraft(aliasesToText(model.aliases));
+  }, [model.aliases]);
 
   const [newTransitionFrom, setNewTransitionFrom] = useState('');
   const [newTransitionTo, setNewTransitionTo] = useState('');
@@ -848,6 +928,36 @@ export default function App() {
             </>
           )}
         </div>
+      </section>
+
+      <section className="panel aliasPanel">
+        <h2>Aliases</h2>
+
+        <p className="muted">
+          One alias per line. Use <code>name: value</code>. Examples:
+          <code> a1: x == 0x2</code>, <code> y10: y=2&apos;b10</code>.
+        </p>
+
+        <textarea
+          className="textArea"
+          value={aliasesDraft}
+          placeholder={"a1: x == 0x2\ny10: y=2'b10"}
+          onChange={(e) => {
+            setAliasesDraft(e.target.value);
+            setAliasEditError(null);
+          }}
+          onBlur={() => {
+            try {
+              const parsed = parseAliasesText(aliasesDraft);
+              setAliasEditError(null);
+              commitModel((current) => updateAliases(current, parsed));
+            } catch (err) {
+              setAliasEditError(err instanceof Error ? err.message : 'Invalid aliases.');
+            }
+          }}
+        />
+
+        {aliasEditError && <p className="errorText">{aliasEditError}</p>}
       </section>
 
       <section className="panel structurePanel">

@@ -223,3 +223,26 @@ button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+.textArea {
+  width: 100%;
+  min-height: 96px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  font: inherit;
+  resize: vertical;
+}
+
+.textArea:focus {
+  outline: none;
+  border-color: #555;
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.08);
+}
+
+.aliasPanel code {
+  background: #f1f1f3;
+  padding: 1px 5px;
+  border-radius: 6px;
+}
