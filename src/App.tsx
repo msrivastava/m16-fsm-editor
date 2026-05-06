@@ -598,6 +598,146 @@ function updateSignals(
   };
 }
 
+type ValidationItem = {
+  level: 'error' | 'warning';
+  message: string;
+};
+
+function baseSignalName(name: string): string {
+  return name.split('[')[0];
+}
+
+function extractAliasRefs(text: string): string[] {
+  return [...text.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((m) => m[1]);
+}
+
+function extractConditionSignalRefs(condition: string): string[] {
+  const withoutAliases = condition.replace(/\{[A-Za-z_][A-Za-z0-9_]*\}/g, ' ');
+  const withoutConstants = withoutAliases
+    .replace(/\d+'[bBhH][0-9a-fA-F_]+/g, ' ')
+    .replace(/0b[01_]+/gi, ' ')
+    .replace(/0x[0-9a-fA-F_]+/gi, ' ')
+    .replace(/\b\d+\b/g, ' ');
+
+  const reserved = new Set(['and', 'or', 'not']);
+  return [...withoutConstants.matchAll(/\b[A-Za-z_][A-Za-z0-9_]*(?:\[\d+\])?\b/g)]
+    .map((m) => baseSignalName(m[0]))
+    .filter((name) => !reserved.has(name));
+}
+
+function extractActionTargets(text: string): string[] {
+  return text
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .filter((x) => !isAliasReference(x))
+    .map((x) => x.split('=')[0]?.trim())
+    .filter(Boolean)
+    .map(baseSignalName);
+}
+
+function validateModel(model: FsmModel, gvError: string | null): ValidationItem[] {
+  const items: ValidationItem[] = [];
+
+  const inputNames = new Set(model.inputs.map((s) => s.name));
+  const outputNames = new Set(model.outputs.map((s) => s.name));
+  const stateNames = new Set(model.states.map((s) => s.id));
+  const aliasNames = new Set((model.aliases ?? []).map((a) => a.name));
+
+  if (gvError) {
+    items.push({ level: 'error', message: `.gv export error: ${gvError}` });
+  }
+
+  if (model.states.length === 0) {
+    items.push({ level: 'error', message: 'FSM must have at least one state.' });
+  }
+
+  const startStates = model.states.filter((s) => s.isStart);
+  if (startStates.length !== 1) {
+    items.push({
+      level: 'error',
+      message: `FSM must have exactly one start state; currently has ${startStates.length}.`,
+    });
+  }
+
+  const allSignalNames = [...model.inputs, ...model.outputs].map((s) => s.name);
+  const duplicateSignals = allSignalNames.filter((name, i) => allSignalNames.indexOf(name) !== i);
+  for (const name of [...new Set(duplicateSignals)]) {
+    items.push({ level: 'error', message: `Signal "${name}" is declared more than once.` });
+  }
+
+  for (const name of model.inputs.map((s) => s.name)) {
+    if (outputNames.has(name)) {
+      items.push({ level: 'error', message: `Signal "${name}" is both input and output.` });
+    }
+  }
+
+  for (const t of model.transitions) {
+    if (!stateNames.has(t.from)) {
+      items.push({ level: 'error', message: `Transition ${t.id} has unknown source state "${t.from}".` });
+    }
+
+    if (!stateNames.has(t.to)) {
+      items.push({ level: 'error', message: `Transition ${t.id} has unknown destination state "${t.to}".` });
+    }
+
+    for (const alias of extractAliasRefs(t.condition)) {
+      if (!aliasNames.has(alias)) {
+        items.push({ level: 'error', message: `Transition ${t.id} condition references unknown alias "{${alias}}".` });
+      }
+    }
+
+    for (const sig of extractConditionSignalRefs(t.condition)) {
+      if (!inputNames.has(sig)) {
+        items.push({ level: 'warning', message: `Transition ${t.id} condition references unknown input "${sig}".` });
+      }
+    }
+
+    const actionText = actionsToText(t.mealyActions, t.friendlyMealyActions);
+
+    for (const alias of extractAliasRefs(actionText)) {
+      if (!aliasNames.has(alias)) {
+        items.push({ level: 'error', message: `Transition ${t.id} action references unknown alias "{${alias}}".` });
+      }
+    }
+
+    for (const target of extractActionTargets(actionText)) {
+      if (!outputNames.has(target)) {
+        items.push({ level: 'warning', message: `Transition ${t.id} action assigns unknown output "${target}".` });
+      }
+    }
+  }
+
+  for (const s of model.states) {
+    const actionText = actionsToText(s.mooreActions, s.friendlyMooreActions);
+
+    for (const alias of extractAliasRefs(actionText)) {
+      if (!aliasNames.has(alias)) {
+        items.push({ level: 'error', message: `State ${s.id} Moore action references unknown alias "{${alias}}".` });
+      }
+    }
+
+    for (const target of extractActionTargets(actionText)) {
+      if (!outputNames.has(target)) {
+        items.push({ level: 'warning', message: `State ${s.id} Moore action assigns unknown output "${target}".` });
+      }
+    }
+  }
+
+  for (const alias of model.aliases ?? []) {
+    try {
+      expandAliasValue(alias, model);
+    } catch (err) {
+      items.push({
+        level: 'error',
+        message: `Alias "${alias.name}" is invalid: ${err instanceof Error ? err.message : 'Could not expand alias.'}`,
+      });
+    }
+  }
+
+  return items;
+}
+
 function modelToFlow(
   model: FsmModel,
   selectedKind?: 'node' | 'edge' | null,
@@ -757,6 +897,11 @@ export default function App() {
       };
     }
   }, [model]);
+
+  const validationItems = useMemo(
+    () => validateModel(model, gvResult.error),
+    [model, gvResult.error]
+  );
 
   const gv = gvResult.text;
 
@@ -1267,6 +1412,22 @@ export default function App() {
               </>
             )}
           </div>
+        )}
+      </section>
+
+      <section className="panel validationPanel">
+        <h2>Validation</h2>
+
+        {validationItems.length === 0 ? (
+          <p className="validText">No validation issues found.</p>
+        ) : (
+          <ul className="validationList">
+            {validationItems.map((item, index) => (
+              <li key={index} className={item.level === 'error' ? 'validationError' : 'validationWarning'}>
+                <strong>{item.level === 'error' ? 'Error' : 'Warning'}:</strong> {item.message}
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

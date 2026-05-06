@@ -246,3 +246,29 @@ button:disabled {
   padding: 1px 5px;
   border-radius: 6px;
 }
+
+.validationPanel {
+  min-height: 120px;
+}
+
+.validationList {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.validationList li {
+  margin: 6px 0;
+}
+
+.validationError {
+  color: #b00020;
+}
+
+.validationWarning {
+  color: #8a5a00;
+}
+
+.validText {
+  color: #146c2e;
+  font-weight: 600;
+}
