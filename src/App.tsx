@@ -34,7 +34,7 @@ type FlowHandleChoice = {
 };
 
 function transitionLabel(t: FsmModel['transitions'][number]): string {
-  const actions = t.mealyActions?.map((a) => `${a.target}=${a.value}`).join(',') ?? '';
+  const actions = actionsToText(t.mealyActions, t.friendlyMealyActions);
   const aliases = t.actionAliases?.map((a) => `{${a}}`).join(',') ?? '';
   const rhs = [actions, aliases].filter(Boolean).join(',');
   return rhs ? `${t.condition} / ${rhs}` : t.condition;
@@ -201,41 +201,125 @@ function allocateHandles(
   return result;
 }
 
-function actionsToText(actions: FsmModel['transitions'][number]['mealyActions']): string {
-  return (actions ?? []).map((a) => `${a.target}=${a.value}`).join(',');
+function actionsToText(
+  actions: FsmModel['transitions'][number]['mealyActions'],
+  friendlyText?: string
+): string {
+  return friendlyText ?? (actions ?? []).map((a) => `${a.target}=${a.value}`).join(',');
 }
 
-function parseActionsText(text: string): FsmModel['transitions'][number]['mealyActions'] {
+function findSignalWidth(model: FsmModel, signalName: string): number | undefined {
+  const signal = [...model.inputs, ...model.outputs].find((s) => s.name === signalName);
+  return signal?.width;
+}
+
+function parseConstant(raw: string, width?: number): number {
+  const text = raw.trim().replaceAll('_', '');
+
+  let value: number;
+
+  const sizedBinary = text.match(/^(\d+)'b([01]+)$/i);
+  const sizedHex = text.match(/^(\d+)'h([0-9a-f]+)$/i);
+
+  if (sizedBinary) {
+    value = parseInt(sizedBinary[2], 2);
+  } else if (sizedHex) {
+    value = parseInt(sizedHex[2], 16);
+  } else if (/^0b[01]+$/i.test(text)) {
+    value = parseInt(text.slice(2), 2);
+  } else if (/^0x[0-9a-f]+$/i.test(text)) {
+    value = parseInt(text.slice(2), 16);
+  } else if (/^\d+$/.test(text)) {
+    value = parseInt(text, 10);
+  } else {
+    throw new Error(`Invalid constant "${raw}".`);
+  }
+
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Invalid constant "${raw}".`);
+  }
+
+  if (width !== undefined && value >= 2 ** width) {
+    throw new Error(`Constant "${raw}" does not fit in ${width} bit(s).`);
+  }
+
+  return value;
+}
+
+function parseActionsText(
+  text: string,
+  model?: FsmModel
+): FsmModel['transitions'][number]['mealyActions'] {
   const trimmed = text.trim();
 
   if (!trimmed) return [];
 
-  return trimmed
-    .split(',')
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const pieces = part.split('=').map((x) => x.trim());
+  const actions: FsmModel['transitions'][number]['mealyActions'] = [];
 
-      if (pieces.length !== 2) {
-        throw new Error(`Invalid action "${part}". Use signal=0 or signal=1.`);
-      }
+  for (const part of trimmed.split(',').map((x) => x.trim()).filter(Boolean)) {
+    const pieces = part.split('=').map((x) => x.trim());
 
-      const [target, rawValue] = pieces;
+    if (pieces.length !== 2) {
+      throw new Error(`Invalid action "${part}". Use signal=0 or signal=1.`);
+    }
 
-      if (!target) {
-        throw new Error(`Invalid action "${part}". Missing signal name.`);
-      }
+    const [target, rawValue] = pieces;
 
+    const targetMatch = target.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\[(\d+)\])?$/);
+    if (!targetMatch) {
+      throw new Error(`Invalid action target "${target}".`);
+    }
+
+    const baseName = targetMatch[1];
+    const bitIndexText = targetMatch[2];
+
+    if (bitIndexText !== undefined) {
       if (!['0', '1', 'x', '-', 'd'].includes(rawValue)) {
-        throw new Error(`Invalid value "${rawValue}". Use 0, 1, x, -, or d.`);
+        throw new Error(`Invalid bit value "${rawValue}". Use 0, 1, x, -, or d.`);
       }
 
-      return {
+      actions.push({
         target,
-        value: rawValue === '0' || rawValue === '1' ? Number(rawValue) as 0 | 1 : rawValue as 'x' | '-' | 'd',
-      };
-    });
+        value: rawValue === '0' || rawValue === '1'
+          ? Number(rawValue) as 0 | 1
+          : rawValue as 'x' | '-' | 'd',
+      });
+
+      continue;
+    }
+
+    if (['0', '1', 'x', '-', 'd'].includes(rawValue)) {
+      actions.push({
+        target,
+        value: rawValue === '0' || rawValue === '1'
+          ? Number(rawValue) as 0 | 1
+          : rawValue as 'x' | '-' | 'd',
+      });
+
+      continue;
+    }
+
+    if (!model) {
+      throw new Error(`Multibit assignment "${part}" needs signal declarations.`);
+    }
+
+    const width = findSignalWidth(model, baseName);
+
+    if (!width || width === 1) {
+      throw new Error(`Signal "${baseName}" is not declared as multibit.`);
+    }
+
+    const value = parseConstant(rawValue, width);
+
+    for (let i = 0; i < width; i += 1) {
+      actions.push({
+        target: `${baseName}[${i}]`,
+        value: ((value >> i) & 1) as 0 | 1,
+      });
+    }
+  }
+
+  return actions;
 }
 
 function updateTransition(
@@ -427,7 +511,7 @@ function modelToFlow(
     data: {
       label: s.id,
       isStart: Boolean(s.isStart),
-      mooreActions: actionsToText(s.mooreActions),
+      mooreActions: actionsToText(s.mooreActions, s.friendlyMooreActions),
       selected: selectedKind === 'node' && selectedId === s.id,
     },
   }));
@@ -493,7 +577,27 @@ export default function App() {
     });
   }
 
-  const gv = useMemo(() => exportGv(model), [model]);
+  function modelForGvExport(model: FsmModel): FsmModel {
+    return {
+      ...model,
+      states: model.states.map((s) => ({
+        ...s,
+        mooreActions: s.friendlyMooreActions !== undefined
+          ? parseActionsText(s.friendlyMooreActions, model)
+          : s.mooreActions,
+        friendlyMooreActions: undefined,
+      })),
+      transitions: model.transitions.map((t) => ({
+        ...t,
+        mealyActions: t.friendlyMealyActions !== undefined
+          ? parseActionsText(t.friendlyMealyActions, model)
+          : t.mealyActions,
+        friendlyMealyActions: undefined,
+      })),
+    };
+  }
+
+  const gv = useMemo(() => exportGv(modelForGvExport(model)), [model]);
 
   const initialFlow = useMemo(
     () => modelToFlow(model, selectedKind, selectedId),
@@ -531,7 +635,7 @@ export default function App() {
 
   useEffect(() => {
     if (selectedEdge) {
-      setActionsDraft(actionsToText(selectedEdge.mealyActions));
+      setActionsDraft(actionsToText(selectedEdge.mealyActions, selectedEdge.friendlyMealyActions));
       setActionEditError(null);
     }
   }, [selectedEdge?.id]);
@@ -543,7 +647,7 @@ export default function App() {
   useEffect(() => {
     if (selectedNode) {
       setStateNameDraft(selectedNode.id);
-      setStateMooreDraft(actionsToText(selectedNode.mooreActions));
+      ssetStateMooreDraft(actionsToText(selectedNode.mooreActions, selectedNode.friendlyMooreActions));
       setStateEditError(null);
     }
   }, [selectedNode?.id]);
@@ -880,11 +984,12 @@ export default function App() {
                 setStateMooreDraft(text);
 
                 try {
-                  const parsed = parseActionsText(text);
+                  const parsed = parseActionsText(text, model);
                   setStateEditError(null);
                   commitModel((current) =>
                     updateState(current, selectedNode.id, {
                       mooreActions: parsed,
+                      friendlyMooreActions: text,
                     })
                   );
                 } catch (err) {
@@ -942,11 +1047,12 @@ export default function App() {
                 setActionsDraft(text);
 
                 try {
-                  const parsed = parseActionsText(text);
+                  const parsed = parseActionsText(text, model);
                   setActionEditError(null);
                   commitModel((current) =>
                     updateTransition(current, selectedEdge.id, {
                       mealyActions: parsed,
+                      friendlyMealyActions: text,
                     })
                   );
                 } catch (err) {

@@ -19,6 +19,7 @@ export type State = {
   id: string;
   isStart?: boolean;
   mooreActions?: Assignment[];
+  friendlyMooreActions?: string;
 };
 
 export type Transition = {
@@ -28,6 +29,7 @@ export type Transition = {
   condition: string;
   mealyActions?: Assignment[];
   actionAliases?: string[];
+  friendlyMealyActions?: string;
 };
 
 export type FsmModel = {
