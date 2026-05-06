@@ -285,6 +285,10 @@ function parseActionsText(
   const actions: FsmModel['transitions'][number]['mealyActions'] = [];
 
   for (const part of trimmed.split(',').map((x) => x.trim()).filter(Boolean)) {
+    if (isAliasReference(part)) {
+      continue;
+    }
+
     const pieces = part.split('=').map((x) => x.trim());
 
     if (pieces.length !== 2) {
@@ -555,6 +559,10 @@ function parseAliasesText(text: string): FsmModel['aliases'] {
   return aliases;
 }
 
+function isAliasReference(text: string): boolean {
+  return /^\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(text.trim());
+}
+
 function updateAliases(model: FsmModel, aliases: FsmModel['aliases']): FsmModel {
   return {
     ...model,
@@ -674,6 +682,20 @@ export default function App() {
     });
   }
 
+  function parseActionsForGv(text: string, model: FsmModel) {
+    const expanded = parseActionsText(text, model);
+
+    const aliasParts = text
+      .split(',')
+      .map((x) => x.trim())
+      .filter(isAliasReference);
+
+    return {
+      expanded,
+      aliasParts,
+    };
+  }
+
   function modelForGvExport(model: FsmModel): FsmModel {
     return {
       ...model,
@@ -681,25 +703,62 @@ export default function App() {
         ...a,
         value: expandAliasValue(a, model),
       })),
-      states: model.states.map((s) => ({
-        ...s,
-        mooreActions: s.friendlyMooreActions !== undefined
-          ? parseActionsText(s.friendlyMooreActions, model)
-          : s.mooreActions,
-        friendlyMooreActions: undefined,
-      })),
-      transitions: model.transitions.map((t) => ({
-        ...t,
-        condition: expandCondition(t.condition, model),
-        mealyActions: t.friendlyMealyActions !== undefined
-          ? parseActionsText(t.friendlyMealyActions, model)
-          : t.mealyActions,
-        friendlyMealyActions: undefined,
-      })),
+      states: model.states.map((s) => {
+        if (s.friendlyMooreActions === undefined) {
+          return {
+            ...s,
+            friendlyMooreActions: undefined,
+          };
+        }
+
+        const { expanded, aliasParts } = parseActionsForGv(s.friendlyMooreActions, model);
+
+        return {
+          ...s,
+          mooreActions: expanded,
+          // Keep aliases visible to exportGv only if needed later.
+          // Current gvExport only sees mooreActions, so for now aliases in Moore state labels
+          // are not supported unless gvExport is extended.
+          friendlyMooreActions: aliasParts.length > 0 ? aliasParts.join(',') : undefined,
+        };
+      }),
+      transitions: model.transitions.map((t) => {
+        if (t.friendlyMealyActions === undefined) {
+          return {
+            ...t,
+            condition: expandCondition(t.condition, model),
+            friendlyMealyActions: undefined,
+          };
+        }
+
+        const { expanded, aliasParts } = parseActionsForGv(t.friendlyMealyActions, model);
+
+        return {
+          ...t,
+          condition: expandCondition(t.condition, model),
+          mealyActions: expanded,
+          actionAliases: aliasParts.map((x) => x.slice(1, -1)),
+          friendlyMealyActions: undefined,
+        };
+      }),
     };
   }
 
-  const gv = useMemo(() => exportGv(modelForGvExport(model)), [model]);
+  const gvResult = useMemo(() => {
+    try {
+      return {
+        text: exportGv(modelForGvExport(model)),
+        error: null as string | null,
+      };
+    } catch (err) {
+      return {
+        text: '',
+        error: err instanceof Error ? err.message : 'Could not generate .gv.',
+      };
+    }
+  }, [model]);
+
+  const gv = gvResult.text;
 
   const initialFlow = useMemo(
     () => modelToFlow(model, selectedKind, selectedId),
@@ -804,6 +863,7 @@ export default function App() {
 
         <div className="structureRow">
           <button
+            disabled={Boolean(gvResult.error)}
             onClick={() => {
               const blob = new Blob([gv], { type: 'text/vnd.graphviz' });
               const url = URL.createObjectURL(blob);
@@ -1212,7 +1272,11 @@ export default function App() {
 
       <section className="panel">
         <h2>Generated .gv</h2>
-        <pre>{gv}</pre>
+        {gvResult.error ? (
+          <p className="errorText">{gvResult.error}</p>
+        ) : (
+          <pre>{gv}</pre>
+        )}
       </section>
     </main>
   );
