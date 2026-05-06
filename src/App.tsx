@@ -246,6 +246,34 @@ function parseConstant(raw: string, width?: number): number {
   return value;
 }
 
+function expandCondition(condition: string, model: FsmModel): string {
+  const comparisonRegex =
+    /\b([A-Za-z_][A-Za-z0-9_]*)\s*(==|!=)\s*((?:\d+'[bBhH][0-9a-fA-F_]+)|(?:0b[01_]+)|(?:0x[0-9a-fA-F_]+)|(?:\d+))/g;
+
+  return condition.replace(comparisonRegex, (_match, name, op, rawConst) => {
+    const width = findSignalWidth(model, name);
+
+    if (!width || width === 1) {
+      throw new Error(`Signal "${name}" is not declared as multibit.`);
+    }
+
+    const value = parseConstant(rawConst, width);
+
+    const bitTerms: string[] = [];
+
+    for (let i = 0; i < width; i += 1) {
+      const bit = (value >> i) & 1;
+      bitTerms.push(bit ? `${name}[${i}]` : `~${name}[${i}]`);
+    }
+
+    const equality = bitTerms.length === 1
+      ? bitTerms[0]
+      : `(${bitTerms.join('&')})`;
+
+    return op === '==' ? equality : `~${equality}`;
+  });
+}
+
 function parseActionsText(
   text: string,
   model?: FsmModel
@@ -589,6 +617,7 @@ export default function App() {
       })),
       transitions: model.transitions.map((t) => ({
         ...t,
+        condition: expandCondition(t.condition, model),
         mealyActions: t.friendlyMealyActions !== undefined
           ? parseActionsText(t.friendlyMealyActions, model)
           : t.mealyActions,
@@ -647,7 +676,7 @@ export default function App() {
   useEffect(() => {
     if (selectedNode) {
       setStateNameDraft(selectedNode.id);
-      ssetStateMooreDraft(actionsToText(selectedNode.mooreActions, selectedNode.friendlyMooreActions));
+      setStateMooreDraft(actionsToText(selectedNode.mooreActions, selectedNode.friendlyMooreActions));
       setStateEditError(null);
     }
   }, [selectedNode?.id]);
