@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -32,6 +32,12 @@ type Side = 'right' | 'left' | 'bottom' | 'top';
 type FlowHandleChoice = {
   sourceHandle: string;
   targetHandle: string;
+};
+
+type SavedFsmFile = {
+  version: 1;
+  model: FsmModel;
+  nodePositions: Record<string, Point>;
 };
 
 function transitionLabel(t: FsmModel['transitions'][number]): string {
@@ -867,12 +873,51 @@ function modelToFlow(
   return { nodes, edges };
 }
 
+function makeSavedFsmFile(model: FsmModel, nodes: Node[]): SavedFsmFile {
+  const nodePositions: Record<string, Point> = {};
+
+  for (const node of nodes) {
+    nodePositions[node.id] = {
+      x: node.position.x,
+      y: node.position.y,
+    };
+  }
+
+  return {
+    version: 1,
+    model,
+    nodePositions,
+  };
+}
+
+function parseSavedFsmFile(text: string): SavedFsmFile {
+  const parsed = JSON.parse(text);
+
+  if (parsed.version !== 1) {
+    throw new Error('Unsupported FSM project file version.');
+  }
+
+  if (!parsed.model || !Array.isArray(parsed.model.states) || !Array.isArray(parsed.model.transitions)) {
+    throw new Error('Invalid FSM project file: missing model/states/transitions.');
+  }
+
+  if (!parsed.nodePositions || typeof parsed.nodePositions !== 'object') {
+    throw new Error('Invalid FSM project file: missing node positions.');
+  }
+
+  return parsed as SavedFsmFile;
+}
+
 export default function App() {
   const [model, setModelRaw] = useState<FsmModel>(example2);
   const [undoModel, setUndoModel] = useState<FsmModel | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedKind, setSelectedKind] = useState<'node' | 'edge' | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [loadedNodePositions, setLoadedNodePositions] = useState<Record<string, Point> | null>(null);
+  const [projectFileError, setProjectFileError] = useState<string | null>(null);
 
   function commitModel(update: FsmModel | ((current: FsmModel) => FsmModel)) {
     setModelRaw((current) => {
@@ -883,6 +928,35 @@ export default function App() {
       setUndoModel(current);
       return next;
     });
+  }
+
+  function downloadProjectJson() {
+    const saved = makeSavedFsmFile(model, nodes);
+    const text = JSON.stringify(saved, null, 2);
+
+    const blob = new Blob([text], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'fsm.fsm.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function loadProjectJsonFile(file: File) {
+    try {
+      const text = await file.text();
+      const saved = parseSavedFsmFile(text);
+
+      setUndoModel(model);
+      setModelRaw(saved.model);
+      setLoadedNodePositions(saved.nodePositions);
+      setSelectedKind(null);
+      setSelectedId(null);
+      setProjectFileError(null);
+    } catch (err) {
+      setProjectFileError(err instanceof Error ? err.message : 'Could not load FSM project file.');
+    }
   }
 
   function parseActionsForGv(text: string, model: FsmModel) {
@@ -981,6 +1055,11 @@ export default function App() {
 
     setNodes((currentNodes) =>
       flow.nodes.map((newNode) => {
+        const loadedPosition = loadedNodePositions?.[newNode.id];
+        if (loadedPosition) {
+          return { ...newNode, position: loadedPosition };
+        }
+
         const existing = currentNodes.find((n) => n.id === newNode.id);
         return existing
           ? { ...newNode, position: existing.position }
@@ -989,7 +1068,11 @@ export default function App() {
     );
 
     setEdges(flow.edges);
-  }, [model, selectedKind, selectedId, setNodes, setEdges]);
+
+    if (loadedNodePositions) {
+      setLoadedNodePositions(null);
+    }
+  }, [model, selectedKind, selectedId, loadedNodePositions, setNodes, setEdges]);
 
   const selectedNode = selectedKind === 'node'
     ? model.states.find((s) => s.id === selectedId)
@@ -1085,6 +1168,28 @@ export default function App() {
             Download .gv
           </button>
 
+          <button onClick={downloadProjectJson}>
+            Save project JSON
+          </button>
+
+          <button onClick={() => fileInputRef.current?.click()}>
+            Load project JSON
+          </button>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,.fsm.json,application/json"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                void loadProjectJsonFile(file);
+              }
+              e.currentTarget.value = '';
+            }}
+          />
+
           <button
             disabled={!undoModel}
             onClick={() => {
@@ -1098,6 +1203,7 @@ export default function App() {
             Undo
           </button>
         </div>
+        {projectFileError && <p className="errorText">{projectFileError}</p>}
       </section>
 
       <section className="panel canvasPanel">
