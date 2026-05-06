@@ -18,7 +18,7 @@ import { FsmStateNode } from './components/FsmStateNode';
 import { SelfLoopEdge } from './components/SelfLoopEdge';
 import { FsmTransitionEdge } from './components/FsmTransitionEdge';
 
-import { example2 } from './fsm/examples';
+import { simpleExample } from './fsm/examples';
 import { exportGv } from './fsm/gvExport';
 import type { FsmModel } from './fsm/model';
 import './App.css';
@@ -911,7 +911,7 @@ function parseSavedFsmFile(text: string): SavedFsmFile {
 }
 
 export default function App() {
-  const [model, setModelRaw] = useState<FsmModel>(example2);
+  const [model, setModelRaw] = useState<FsmModel>(simpleExample);
   const [undoModel, setUndoModel] = useState<FsmModel | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
