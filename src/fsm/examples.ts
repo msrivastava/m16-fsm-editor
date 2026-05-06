@@ -1,6 +1,7 @@
 import type { FsmModel } from './model';
 
 export const simpleExample: FsmModel = {
+  name: 'simple',
   inputs: [{ name: 'X', width: 1 }],
   outputs: [{ name: 'Z', width: 1 }],
   states: [
