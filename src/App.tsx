@@ -370,6 +370,45 @@ function deleteTransition(model: FsmModel, transitionId: string): FsmModel {
   };
 }
 
+function signalToText(signals: FsmModel['inputs']): string {
+  return signals.map((s) => (s.width === 1 ? s.name : `${s.name}[${s.width}]`)).join(',');
+}
+
+function parseSignalsText(text: string): FsmModel['inputs'] {
+  return text
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const match = part.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\[(\d+)\])?$/);
+      if (!match) {
+        throw new Error(`Invalid signal declaration "${part}". Use x or x[4].`);
+      }
+
+      const width = match[2] ? Number(match[2]) : 1;
+
+      if (!Number.isInteger(width) || width < 1) {
+        throw new Error(`Invalid width in "${part}".`);
+      }
+
+      return {
+        name: match[1],
+        width,
+      };
+    });
+}
+
+function updateSignals(
+  model: FsmModel,
+  kind: 'inputs' | 'outputs',
+  signals: FsmModel['inputs']
+): FsmModel {
+  return {
+    ...model,
+    [kind]: signals,
+  };
+}
+
 function modelToFlow(
   model: FsmModel,
   selectedKind?: 'node' | 'edge' | null,
@@ -509,6 +548,15 @@ export default function App() {
     }
   }, [selectedNode?.id]);
 
+  const [inputsDraft, setInputsDraft] = useState(signalToText(model.inputs));
+  const [outputsDraft, setOutputsDraft] = useState(signalToText(model.outputs));
+  const [signalEditError, setSignalEditError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setInputsDraft(signalToText(model.inputs));
+    setOutputsDraft(signalToText(model.outputs));
+  }, [model.inputs, model.outputs]);
+
   const [newTransitionFrom, setNewTransitionFrom] = useState('');
   const [newTransitionTo, setNewTransitionTo] = useState('');
   const [structureEditError, setStructureEditError] = useState<string | null>(null);
@@ -598,6 +646,74 @@ export default function App() {
             <Background />
             <Controls />
           </ReactFlow>
+        </div>
+      </section>
+
+      <section className="panel signalPanel">
+        <h2>Signals</h2>
+
+        <div className="inspectorGrid">
+          <label className="fieldLabel" htmlFor="inputsInput">
+            Inputs
+          </label>
+          <input
+            id="inputsInput"
+            className="textInput"
+            value={inputsDraft}
+            placeholder="go,ws,x[2]"
+            onChange={(e) => {
+              setInputsDraft(e.target.value);
+              setSignalEditError(null);
+            }}
+            onBlur={() => {
+              try {
+                const parsed = parseSignalsText(inputsDraft);
+                setSignalEditError(null);
+                commitModel((current) => updateSignals(current, 'inputs', parsed));
+              } catch (err) {
+                setSignalEditError(err instanceof Error ? err.message : 'Invalid input list.');
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.currentTarget.blur();
+              }
+            }}
+          />
+          <label className="fieldLabel" htmlFor="outputsInput">
+            Outputs
+          </label>
+          <input
+            id="outputsInput"
+            className="textInput"
+            value={outputsDraft}
+            placeholder="rd,ds,y[2]"
+            onChange={(e) => {
+              setOutputsDraft(e.target.value);
+              setSignalEditError(null);
+            }}
+            onBlur={() => {
+              try {
+                const parsed = parseSignalsText(outputsDraft);
+                setSignalEditError(null);
+                commitModel((current) => updateSignals(current, 'outputs', parsed));
+              } catch (err) {
+                setSignalEditError(err instanceof Error ? err.message : 'Invalid output list.');
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.currentTarget.blur();
+              }
+            }}
+          />
+
+          {signalEditError && (
+            <>
+              <div />
+              <div className="errorText">{signalEditError}</div>
+            </>
+          )}
         </div>
       </section>
 
