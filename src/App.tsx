@@ -8,6 +8,7 @@ import {
   useEdgesState,
   type Node,
   type Edge,
+  type Connection,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -738,6 +739,68 @@ function validateModel(model: FsmModel, gvError: string | null): ValidationItem[
   return items;
 }
 
+function sameSideSelfLoopHandles(
+  sourceHandle?: string | null,
+  targetHandle?: string | null
+) {
+  const basis = targetHandle ?? sourceHandle ?? 'top';
+
+  if (basis.startsWith('bottom')) {
+    return { sourceHandle: 'bottom-source', targetHandle: 'bottom' };
+  }
+
+  if (basis.startsWith('left')) {
+    return { sourceHandle: 'left-source', targetHandle: 'left' };
+  }
+
+  if (basis.startsWith('right')) {
+    return { sourceHandle: 'right-source', targetHandle: 'right' };
+  }
+
+  return { sourceHandle: 'top-source', targetHandle: 'top' };
+}
+
+function reconnectTransition(
+  model: FsmModel,
+  transitionId: string,
+  connection: Connection
+): FsmModel {
+  const nextFrom = connection.source;
+  const nextTo = connection.target;
+
+  if (!nextFrom || !nextTo) {
+    return model;
+  }
+
+  const isSelfLoop = nextFrom === nextTo;
+  const selfLoopHandles = isSelfLoop
+    ? sameSideSelfLoopHandles(connection.sourceHandle, connection.targetHandle)
+    : null;
+
+  return {
+    ...model,
+    transitions: model.transitions.map((t) => {
+      if (t.id !== transitionId) return t;
+
+      return {
+        ...t,
+        from: nextFrom,
+        to: nextTo,
+
+        // For self-loops, keep the clean custom top loop.
+        // For ordinary edges, preserve the exact handles chosen by dragging.
+        sourceHandle: isSelfLoop
+          ? selfLoopHandles!.sourceHandle
+          : connection.sourceHandle ?? undefined,
+
+        targetHandle: isSelfLoop
+          ? selfLoopHandles!.targetHandle
+          : connection.targetHandle ?? undefined,
+      };
+    }),
+  };
+}
+
 function modelToFlow(
   model: FsmModel,
   selectedKind?: 'node' | 'edge' | null,
@@ -769,8 +832,8 @@ function modelToFlow(
         id: t.id,
         source: t.from,
         target: t.to,
-        sourceHandle: 'top-source',
-        targetHandle: 'top',
+        sourceHandle: t.sourceHandle ?? 'top-source',
+        targetHandle: t.targetHandle ?? 'top',
         label,
         type: 'selfLoop',
         markerEnd: { type: MarkerType.ArrowClosed },
@@ -788,8 +851,8 @@ function modelToFlow(
       id: t.id,
       source: t.from,
       target: t.to,
-      sourceHandle: handles.sourceHandle,
-      targetHandle: handles.targetHandle,
+      sourceHandle: t.sourceHandle ?? handles.sourceHandle,
+      targetHandle: t.targetHandle ?? handles.targetHandle,
       label,
       type: 'fsmTransition',
       markerEnd: { type: MarkerType.ArrowClosed },
@@ -1045,6 +1108,15 @@ export default function App() {
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+            onReconnect={(oldEdge, newConnection) => {
+              commitModel((current) =>
+                reconnectTransition(current, oldEdge.id, newConnection)
+              );
+
+              setSelectedKind('edge');
+              setSelectedId(oldEdge.id);
+            }}
+            edgesReconnectable
             onNodeClick={(_, node) => {
               setSelectedKind('node');
               setSelectedId(node.id);
@@ -1362,6 +1434,12 @@ export default function App() {
             <div className="fieldLabel">To</div>
             <div>{selectedEdge.to}</div>
 
+            <div className="fieldLabel">Source handle</div>
+            <div>{selectedEdge.sourceHandle ?? 'auto'}</div>
+
+            <div className="fieldLabel">Target handle</div>
+            <div>{selectedEdge.targetHandle ?? 'auto'}</div>
+
             <label className="fieldLabel" htmlFor="conditionInput">
               Condition
             </label>
@@ -1404,6 +1482,21 @@ export default function App() {
                 }
               }}
             />
+
+            <button
+              onClick={() => {
+                commitModel((current) =>
+                  updateTransition(current, selectedEdge.id, {
+                    sourceHandle: undefined,
+                    targetHandle: undefined,
+                  })
+                );
+              }}
+            >
+              Reset automatic routing
+            </button>
+
+            <div />
 
             {actionEditError && (
               <>

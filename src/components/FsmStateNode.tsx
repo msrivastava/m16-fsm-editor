@@ -2,8 +2,8 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 
 const handleStyle = {
   opacity: 0,
-  width: 1,
-  height: 1,
+  width: 14,
+  height: 14,
   background: 'transparent',
   border: 'none',
 };

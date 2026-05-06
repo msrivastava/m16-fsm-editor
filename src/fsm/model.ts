@@ -30,6 +30,8 @@ export type Transition = {
   mealyActions?: Assignment[];
   actionAliases?: string[];
   friendlyMealyActions?: string;
+  sourceHandle?: string;
+  targetHandle?: string;
 };
 
 export type FsmModel = {
