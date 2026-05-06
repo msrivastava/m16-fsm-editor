@@ -6,6 +6,7 @@ import {
   MarkerType,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   type Node,
   type Edge,
   type Connection,
@@ -59,7 +60,7 @@ function computeDagreLayout(model: FsmModel): Record<string, Point> {
     nodesep: 80,
     ranksep: 140,
     marginx: 40,
-    marginy: 40,
+    marginy: 180,
   });
 
   for (const state of model.states) {
@@ -910,6 +911,24 @@ function parseSavedFsmFile(text: string): SavedFsmFile {
   return parsed as SavedFsmFile;
 }
 
+function FitViewOnInit() {
+  const { fitView } = useReactFlow();
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fitView({
+        padding: 0.5,
+        duration: 0,
+        maxZoom: 1.0,
+      });
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [fitView]);
+
+  return null;
+}
+
 export default function App() {
   const [model, setModelRaw] = useState<FsmModel>(simpleExample);
   const [undoModel, setUndoModel] = useState<FsmModel | null>(null);
@@ -1239,8 +1258,8 @@ export default function App() {
             }}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
-            fitView
           >
+            <FitViewOnInit />
             <Background />
             <Controls />
           </ReactFlow>
