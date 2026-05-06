@@ -16,7 +16,6 @@ export function FsmTransitionEdge({
   markerEnd,
   style,
   label,
-  data,
 }: EdgeProps) {
   const offset = 0;
 

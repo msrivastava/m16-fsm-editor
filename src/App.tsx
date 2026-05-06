@@ -40,6 +40,8 @@ type SavedFsmFile = {
   nodePositions: Record<string, Point>;
 };
 
+type FsmAlias = NonNullable<FsmModel['aliases']>[number];
+
 function transitionLabel(t: FsmModel['transitions'][number]): string {
   const actions = actionsToText(t.mealyActions, t.friendlyMealyActions);
   const aliases = t.actionAliases?.map((a) => `{${a}}`).join(',') ?? '';
@@ -582,7 +584,7 @@ function looksLikeActionAlias(value: string): boolean {
   return /(^|,)\s*[A-Za-z_][A-Za-z0-9_]*(?:\[\d+\])?\s*=/.test(value);
 }
 
-function expandAliasValue(alias: FsmModel['aliases'][number], model: FsmModel): string {
+function expandAliasValue(alias: FsmAlias, model: FsmModel): string {
   if (alias.value.includes('{') || alias.value.includes('}')) {
     throw new Error(`Alias "${alias.name}" may not use another alias.`);
   }
