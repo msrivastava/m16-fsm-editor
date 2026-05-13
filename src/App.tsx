@@ -996,7 +996,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'fsm.fsm.json';
+    a.download = `${safeFileStem(model.name)}.fsm.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -1262,7 +1262,7 @@ export default function App() {
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');
               a.href = url;
-              a.download = 'fsm.gv';
+              a.download = `${safeFileStem(model.name)}.gv`;
               a.click();
               URL.revokeObjectURL(url);
             }}
