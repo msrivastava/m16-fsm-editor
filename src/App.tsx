@@ -1392,15 +1392,17 @@ export default function App() {
           {selectedNode && (
             <button
               className="dangerButton"
+              disabled={model.states.length <= 1}
               onClick={() => {
-                try {
-                  commitModel((current) => deleteState(current, selectedNode.id));
-                  setSelectedKind(null);
-                  setSelectedId(null);
-                  setStructureEditError(null);
-                } catch (err) {
-                  setStructureEditError(err instanceof Error ? err.message : 'Could not delete state.');
+                if (model.states.length <= 1) {
+                  setStructureEditError('FSM must have at least one state.');
+                  return;
                 }
+
+                commitModel((current) => deleteState(current, selectedNode.id));
+                setSelectedKind(null);
+                setSelectedId(null);
+                setStructureEditError(null);
               }}
             >
               Delete selected state
