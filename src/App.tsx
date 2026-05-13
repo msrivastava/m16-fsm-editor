@@ -472,6 +472,14 @@ function deleteState(model: FsmModel, stateId: string): FsmModel {
 }
 
 function addTransition(model: FsmModel, from: string, to: string): FsmModel {
+  if (!model.states.some((s) => s.id === from)) {
+    throw new Error(`Unknown source state "${from}".`);
+  }
+
+  if (!model.states.some((s) => s.id === to)) {
+    throw new Error(`Unknown destination state "${to}".`);
+  }
+
   const id = nextUniqueTransitionId(model);
 
   return {
@@ -1146,10 +1154,19 @@ export default function App() {
   const [structureEditError, setStructureEditError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (model.states.length > 0) {
-      setNewTransitionFrom((current) => current || model.states[0].id);
-      setNewTransitionTo((current) => current || model.states[0].id);
+    if (model.states.length === 0) {
+      setNewTransitionFrom('');
+      setNewTransitionTo('');
+      return;
     }
+
+    setNewTransitionFrom((current) =>
+      model.states.some((s) => s.id === current) ? current : model.states[0].id
+    );
+
+    setNewTransitionTo((current) =>
+      model.states.some((s) => s.id === current) ? current : model.states[0].id
+    );
   }, [model.states]);
 
   const nodeTypes = useMemo(
@@ -1462,8 +1479,12 @@ export default function App() {
                 return;
               }
 
-              commitModel((current) => addTransition(current, newTransitionFrom, newTransitionTo));
-              setStructureEditError(null);
+              try {
+                commitModel((current) => addTransition(current, newTransitionFrom, newTransitionTo));
+                setStructureEditError(null);
+              } catch (err) {
+                setStructureEditError(err instanceof Error ? err.message : 'Could not add transition.');
+              }
             }}
           >
             Add transition
