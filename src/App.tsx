@@ -21,6 +21,7 @@ import { FsmTransitionEdge } from './components/FsmTransitionEdge';
 
 import { simpleExample } from './fsm/examples';
 import { exportGv } from './fsm/gvExport';
+import { importGv } from './fsm/gvImport';
 import type { FsmModel } from './fsm/model';
 import './App.css';
 
