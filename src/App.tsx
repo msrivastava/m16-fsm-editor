@@ -954,6 +954,18 @@ function FitViewOnInit() {
   return null;
 }
 
+function safeFileStem(name: string): string {
+  const cleaned = name.trim().replace(/[^A-Za-z0-9_-]+/g, '_');
+  return cleaned || 'fsm';
+}
+
+function updateFsmName(model: FsmModel, name: string): FsmModel {
+  return {
+    ...model,
+    name,
+  };
+}
+
 export default function App() {
   const [model, setModelRaw] = useState<FsmModel>(simpleExample);
   const [undoModel, setUndoModel] = useState<FsmModel | null>(null);
@@ -1207,6 +1219,21 @@ export default function App() {
         <h1>M16 FSM Editor</h1>
         <p>Visual editor for generating fsm2logisim-compatible .gv files.</p>
 
+        <div className="inspectorGrid">
+          <label className="fieldLabel" htmlFor="fsmNameInput">
+            FSM name
+          </label>
+          <input
+            id="fsmNameInput"
+            className="textInput"
+            value={model.name}
+            placeholder="my_fsm"
+            onChange={(e) => {
+              commitModel((current) => updateFsmName(current, e.target.value));
+            }}
+          />
+        </div>
+
         <div className="structureRow">
 
           <button
@@ -1227,7 +1254,7 @@ export default function App() {
           >
             New FSM
           </button>
-          
+
           <button
             disabled={Boolean(gvResult.error)}
             onClick={() => {
