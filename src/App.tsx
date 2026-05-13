@@ -974,6 +974,7 @@ export default function App() {
   const [selectedKind, setSelectedKind] = useState<'node' | 'edge' | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const gvFileInputRef = useRef<HTMLInputElement | null>(null);
   const [loadedNodePositions, setLoadedNodePositions] = useState<Record<string, Point> | null>(null);
   const [projectFileError, setProjectFileError] = useState<string | null>(null);
 
@@ -1014,6 +1015,22 @@ export default function App() {
       setProjectFileError(null);
     } catch (err) {
       setProjectFileError(err instanceof Error ? err.message : 'Could not load FSM project file.');
+    }
+  }
+
+  async function loadGvFile(file: File) {
+    try {
+      const text = await file.text();
+      const imported = importGv(text);
+
+      setUndoModel(model);
+      setModelRaw(imported);
+      setLoadedNodePositions(null);
+      setSelectedKind(null);
+      setSelectedId(null);
+      setProjectFileError(null);
+    } catch (err) {
+      setProjectFileError(err instanceof Error ? err.message : 'Could not load .gv file.');
     }
   }
 
@@ -1269,6 +1286,24 @@ export default function App() {
           >
             Download .gv
           </button>
+
+          <button onClick={() => gvFileInputRef.current?.click()}>
+            Load .gv
+          </button>
+
+          <input
+            ref={gvFileInputRef}
+            type="file"
+            accept=".gv,.dot,text/vnd.graphviz,text/plain"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                void loadGvFile(file);
+              }
+              e.currentTarget.value = '';
+            }}
+          />
 
           <button onClick={downloadProjectJson}>
             Save project JSON
