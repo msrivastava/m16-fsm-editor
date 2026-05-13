@@ -434,6 +434,23 @@ function nextUniqueTransitionId(model: FsmModel): string {
   return `t${i}`;
 }
 
+function newBlankFsm(): FsmModel {
+  return {
+    name: 'untitled',
+    inputs: [],
+    outputs: [],
+    states: [
+      {
+        id: 'S0',
+        isStart: true,
+        mooreActions: [],
+      },
+    ],
+    transitions: [],
+    aliases: [],
+  };
+}
+
 function addState(model: FsmModel): FsmModel {
   const id = nextUniqueStateId(model);
 
@@ -1191,6 +1208,26 @@ export default function App() {
         <p>Visual editor for generating fsm2logisim-compatible .gv files.</p>
 
         <div className="structureRow">
+
+          <button
+            className="dangerButton"
+            onClick={() => {
+              if (!window.confirm('Start a new FSM? This will discard the current FSM.')) {
+                return;
+              }
+
+              setUndoModel(model);
+              setModelRaw(newBlankFsm());
+              setSelectedKind(null);
+              setSelectedId(null);
+              setLoadedNodePositions(null);
+              setProjectFileError(null);
+              setStructureEditError(null);
+            }}
+          >
+            New FSM
+          </button>
+          
           <button
             disabled={Boolean(gvResult.error)}
             onClick={() => {
@@ -1524,7 +1561,7 @@ export default function App() {
                   setStateEditError('State name cannot be empty.');
                   return;
                 }
-                
+
                 if (next !== oldId && model.states.some((s) => s.id === next)) {
                   setStateEditError(`State "${next}" already exists.`);
                   return;
