@@ -1530,6 +1530,18 @@ export default function App() {
                   return;
                 }
 
+                const oldPosition = nodes.find((n) => n.id === oldId)?.position;
+
+                if (oldPosition) {
+                  setLoadedNodePositions((current) => ({
+                    ...(current ?? {}),
+                    [next]: {
+                      x: oldPosition.x,
+                      y: oldPosition.y,
+                    },
+                  }));
+                }
+
                 commitModel((current) => renameState(current, oldId, next));
                 setSelectedId(next);
                 setStateEditError(null);
