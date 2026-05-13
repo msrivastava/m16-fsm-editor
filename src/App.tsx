@@ -1524,23 +1524,26 @@ export default function App() {
                   setStateEditError('State name cannot be empty.');
                   return;
                 }
-
+                
                 if (next !== oldId && model.states.some((s) => s.id === next)) {
                   setStateEditError(`State "${next}" already exists.`);
                   return;
                 }
 
-                const oldPosition = nodes.find((n) => n.id === oldId)?.position;
-
-                if (oldPosition) {
-                  setLoadedNodePositions((current) => ({
-                    ...(current ?? {}),
-                    [next]: {
-                      x: oldPosition.x,
-                      y: oldPosition.y,
-                    },
-                  }));
-                }
+                setNodes((currentNodes) =>
+                  currentNodes.map((node) =>
+                    node.id === oldId
+                      ? {
+                          ...node,
+                          id: next,
+                          data: {
+                            ...node.data,
+                            label: next,
+                          },
+                        }
+                      : node
+                  )
+                );
 
                 commitModel((current) => renameState(current, oldId, next));
                 setSelectedId(next);
